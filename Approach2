@@ -1,0 +1,97 @@
+from selenium import webdriver
+from webdriver_manager.chrome import ChromeDriverManager
+import time
+from PIL import Image
+from selenium.webdriver import ActionChains
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import numpy as np
+import cv2
+# Function to find distance between puzzle centers in an image
+def find_puzzle_distance(image_path):
+    try:
+        # Iam  reading image and convert to grayscale
+        image = cv2.imread(image_path)
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        
+        # applied threshold to segment image
+        thresh = cv2.threshold(gray, 140, 200, cv2.THRESH_BINARY)[1]
+        
+        # finding contours of puzzle objects
+        contours, hierarchy = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        # drawing bounding rectangles around contours
+        for cnt in contours:
+            x, y, w, h = cv2.boundingRect(cnt)
+            cv2.rectangle(image, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        
+        # Calculate centers of puzzle objects
+        puzzle_centers = []
+        for cnt in contours:
+            M = cv2.moments(cnt)
+            if not (M["m10"] == 0) and not (M["m00"] == 0) and not (M["m01"] == 0):
+                cX = int(M["m10"] / M["m00"])
+                cY = int(M["m01"] / M["m00"])
+                puzzle_centers.append((cX, cY))
+        
+        # Calculate distance between centers of first two puzzles
+        if len(puzzle_centers) < 2:
+            return None
+        distance = np.linalg.norm(np.array(puzzle_centers[0]) - np.array(puzzle_centers[1]))
+        return distance
+    except Exception as e:
+        print(f"An error occurred while processing the image: {e}")
+        return None
+
+# Initialize Chrome WebDriver
+driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
+actions = ActionChains(driver)
+url = 'https://www.ems.com.cn/english/'
+driver.get(url)
+token = 'CY008445045CN'
+token_space = driver.find_element(By.XPATH, value="//input[@class='el-input__inner']")
+token_space.send_keys(token)
+driver.find_element(By.XPATH, value="//i[@class='el-icon-search']").click()
+
+try:
+    slider_container = WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.XPATH, "//div[@class='slide-verify-slider']")))
+    slider = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, "//div[@class='slide-verify-slider-mask-item']")))
+    element = driver.find_element(By.XPATH, value="//div[@id='slideVerify']")
+    location = element.location
+    size = element.size
+    x = location['x']
+    y = location['y']
+    w = size['width']
+    h = size['height']
+    width = x + w
+    height = y + h
+    # Calculate the adjustment needed for cropping
+    x_adjustment = 300 - x 
+    y_adjustment = 200 - y 
+    # Apply adjustment to cropping coordinates
+    x = x + x_adjustment + 100
+    y = y + y_adjustment 
+    width = width + x_adjustment 
+    height = height + y_adjustment - 100
+    print(width,height,x,y)
+    time.sleep(5)
+    # Loop to simulate sliding the puzzle piece
+    for x in range(1000):
+        driver.save_screenshot("shot.png")
+        time.sleep(8)
+        im = Image.open('shot.png')
+        im = im.crop((int(x), int(y), int(width), int(height)))
+        im.save('image.png')
+        time.sleep(5)
+        x_solver = find_puzzle_distance("image.png")
+        time.sleep(3)
+        print(x_solver)
+        actions.move_to_element(slider).click_and_hold().move_by_offset(x_solver+20, 0).release().perform()
+        time.sleep(8)
+except Exception as e:
+    print(f"An error occurred while processing the slider: {e}")
+finally:
+    # Close the WebDriver session
+    driver.quit()
